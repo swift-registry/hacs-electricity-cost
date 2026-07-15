@@ -32,6 +32,8 @@ ENTITIES: list[tuple[str, str, str, str, SensorDeviceClass | None]] = [
     ("daily_cost", "当日电费", "元", "mdi:cash", None),
     ("yesterday_cost", "昨日电费", "元", "mdi:cash", None),
     ("annual_cost", "全年电费", "元", "mdi:cash-multiple", None),
+    ("seven_day_cost", "近7日电费", "元", "mdi:calendar-week", None),
+    ("seven_day_usage", "近7日电量", "kWh", "mdi:calendar-week", SensorDeviceClass.ENERGY),
 ]
 
 
@@ -111,4 +113,20 @@ class YangzhouSensor(CoordinatorEntity, SensorEntity):
         elif self._key == "yesterday_cost":
             attrs["峰电量(kWh)"] = round(data.get("yesterday_peak", 0.0), 2)
             attrs["谷电量(kWh)"] = round(data.get("yesterday_valley", 0.0), 2)
+        elif self._key == "seven_day_cost":
+            attrs["近7日总电量(kWh)"] = round(data.get("seven_day_usage", 0.0), 2)
+            attrs["近7日峰电量(kWh)"] = round(data.get("seven_day_peak", 0.0), 2)
+            attrs["近7日谷电量(kWh)"] = round(data.get("seven_day_valley", 0.0), 2)
+            # 7天每日明细：第1天=今日，第7天=6天前
+            daily_history = data.get("daily_history_7d", [])
+            for i, day_data in enumerate(daily_history):
+                label = f"第{i + 1}天({day_data['date']})"
+                attrs[f"{label}电费(元)"] = day_data["cost"]
+                attrs[f"{label}电量(kWh)"] = day_data["usage"]
+                attrs[f"{label}峰电量(kWh)"] = day_data["peak"]
+                attrs[f"{label}谷电量(kWh)"] = day_data["valley"]
+        elif self._key == "seven_day_usage":
+            attrs["近7日峰电量(kWh)"] = round(data.get("seven_day_peak", 0.0), 2)
+            attrs["近7日谷电量(kWh)"] = round(data.get("seven_day_valley", 0.0), 2)
+            attrs["近7日总电费(元)"] = round(data.get("seven_day_cost", 0.0), 2)
         return attrs

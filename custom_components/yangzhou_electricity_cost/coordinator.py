@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
+    async_track_time_interval,
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -42,6 +43,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PEAK_START_HOUR = 8  # 峰段开始（含）
 PEAK_END_HOUR = 21  # 峰段结束（不含）
+UPDATE_INTERVAL = timedelta(minutes=5)  # 实时周期值定时刷新间隔
 
 
 def tier_surcharge(annual_kwh, t1, t2, a2, a3):
@@ -124,9 +126,12 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         self.yesterday_start_reading: float | None = None
         self.yesterday_end_reading: float | None = None
         self.current_reading = 0.0
+        # 近7日每日明细：[{date, usage, peak, valley, cost}, ...] 共7项
+        self.daily_history_7d: list[dict] = []
 
         self._unsub_state = None
         self._unsub_midnight = None
+        self._unsub_interval = None
 
     async def async_init(self) -> None:
         """初始化：全量计算并注册监听。"""
@@ -137,6 +142,10 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         self._unsub_midnight = async_track_time_change(
             self.hass, self._on_midnight, hour=0, minute=0, second=5
         )
+        # 每5分钟重新全量计算，保证今日/当月/当年值实时刷新
+        self._unsub_interval = async_track_time_interval(
+            self.hass, self._on_interval, UPDATE_INTERVAL
+        )
 
     async def async_close(self) -> None:
         """卸载时移除监听。"""
@@ -146,6 +155,9 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         if self._unsub_midnight:
             self._unsub_midnight()
             self._unsub_midnight = None
+        if self._unsub_interval:
+            self._unsub_interval()
+            self._unsub_interval = None
 
     async def async_update_data(self):
         """DataUpdateCoordinator 占位（实际由事件驱动）。"""
@@ -189,6 +201,11 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         """跨日：重新计算昨日/今日。"""
         self.hass.async_create_task(self._compute_all())
 
+    @callback
+    def _on_interval(self, now) -> None:
+        """每5分钟重新全量计算，刷新今日/当月/当年实时值。"""
+        self.hass.async_create_task(self._compute_all())
+
     async def _compute_all(self) -> None:
         """全量计算：拉取本月与昨日历史，逐段累加峰谷。"""
         now = dt_util.now()
@@ -204,12 +221,47 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         )
         yesterday_start = today_start - timedelta(days=1)
 
+        # 本月历史（含今日），先拉取以便后续回退使用
+        month_states = await self._get_history(month_start, now)
+
+        # 基线读数（若指定时刻无数据，逐步回退到最早可用读数）
         self.year_start_reading = await self._get_reading_at(year_start)
         self.month_start_reading = await self._get_reading_at(month_start)
         self.today_start_reading = await self._get_reading_at(today_start)
 
-        # 本月历史（含今日）
-        month_states = await self._get_history(month_start, now)
+        # 回退：月初读数 → 本月最早状态
+        if self.month_start_reading is None and month_states:
+            try:
+                self.month_start_reading = float(month_states[0].state)
+            except (ValueError, TypeError):
+                pass
+
+        # 回退：今日读数 → 月初读数 → 今日最早状态
+        if self.today_start_reading is None:
+            if self.month_start_reading is not None:
+                self.today_start_reading = self.month_start_reading
+            else:
+                for st in month_states:
+                    if st.last_changed and st.last_changed >= today_start:
+                        try:
+                            self.today_start_reading = float(st.state)
+                            break
+                        except (ValueError, TypeError):
+                            continue
+
+        # 回退：年初读数 → 月初读数 → 年初到现在最早状态
+        if self.year_start_reading is None:
+            if self.month_start_reading is not None:
+                self.year_start_reading = self.month_start_reading
+            else:
+                year_states = await self._get_history(year_start, now)
+                if year_states:
+                    try:
+                        self.year_start_reading = float(year_states[0].state)
+                    except (ValueError, TypeError):
+                        pass
+
+        # 本月峰谷累加（含今日拆分）
         self.month_peak = 0.0
         self.month_valley = 0.0
         self.today_peak = 0.0
@@ -276,7 +328,98 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
             except (ValueError, TypeError):
                 pass
 
+        # 近7日每日明细
+        self.daily_history_7d = await self._compute_7d_daily(today_start)
+
         self._publish()
+
+    async def _compute_7d_daily(self, today_start) -> list[dict]:
+        """计算近7日每日电量与电费明细，返回7项列表（今日在前）。"""
+        yb = self.year_start_reading if self.year_start_reading is not None else 0.0
+        result: list[dict] = []
+        for i in range(7):
+            day_start = today_start - timedelta(days=i)
+            day_end = day_start + timedelta(days=1)
+
+            if i == 0:
+                # 今日：复用已计算的峰谷和读数
+                day_peak = self.today_peak
+                day_valley = self.today_valley
+                day_start_reading = self.today_start_reading
+                day_end_reading = self.current_reading
+            elif i == 1:
+                # 昨日：复用已计算的峰谷和读数
+                day_peak = self.yesterday_peak
+                day_valley = self.yesterday_valley
+                day_start_reading = self.yesterday_start_reading
+                day_end_reading = self.yesterday_end_reading
+            else:
+                # 前2~6天：拉取当日历史
+                day_states = await self._get_history(day_start, day_end)
+                day_peak = 0.0
+                day_valley = 0.0
+                day_start_reading = None
+                day_end_reading = None
+                if day_states:
+                    try:
+                        day_start_reading = float(day_states[0].state)
+                    except (ValueError, TypeError):
+                        pass
+                    prev = None
+                    prev_t = None
+                    for st in day_states:
+                        try:
+                            cur = float(st.state)
+                        except (ValueError, TypeError):
+                            continue
+                        if prev is not None and prev_t is not None and st.last_changed:
+                            d = cur - prev
+                            if d > 0:
+                                p, v = split_peak_valley(prev_t, st.last_changed, d)
+                                day_peak += p
+                                day_valley += v
+                        prev = cur
+                        prev_t = st.last_changed
+                    if prev is not None:
+                        day_end_reading = prev
+
+            # 当日电量
+            if day_start_reading is not None and day_end_reading is not None:
+                day_usage = max(0.0, day_end_reading - day_start_reading)
+            else:
+                day_usage = day_peak + day_valley
+
+            # 当日电费（含阶梯加价增量）
+            day_start_sur = tier_surcharge(
+                max(0.0, (day_start_reading or 0.0) - yb),
+                self.tier1_limit,
+                self.tier2_limit,
+                self.tier2_add,
+                self.tier3_add,
+            )
+            day_end_sur = tier_surcharge(
+                max(0.0, (day_end_reading or 0.0) - yb),
+                self.tier1_limit,
+                self.tier2_limit,
+                self.tier2_add,
+                self.tier3_add,
+            )
+            day_cost = (
+                day_peak * self.price_peak
+                + day_valley * self.price_valley
+                + max(0.0, day_end_sur - day_start_sur)
+            )
+
+            result.append(
+                {
+                    "date": dt_util.as_local(day_start).strftime("%Y-%m-%d"),
+                    "usage": round(day_usage, 2),
+                    "peak": round(day_peak, 2),
+                    "valley": round(day_valley, 2),
+                    "cost": round(day_cost, 2),
+                }
+            )
+        return result
 
     def _publish(self) -> None:
         """重算派生值并通知实体。"""
@@ -374,6 +517,12 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         else:
             tier = "第一档"
 
+        # 近7日汇总
+        seven_day_cost = sum(d["cost"] for d in self.daily_history_7d)
+        seven_day_usage = sum(d["usage"] for d in self.daily_history_7d)
+        seven_day_peak = sum(d["peak"] for d in self.daily_history_7d)
+        seven_day_valley = sum(d["valley"] for d in self.daily_history_7d)
+
         return {
             "annual_usage": annual_usage,
             "monthly_usage": monthly_usage,
@@ -391,6 +540,11 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
             "current_reading": cur,
             "annual_usage_kwh": annual_usage,
             "current_tier": tier,
+            "seven_day_cost": seven_day_cost,
+            "seven_day_usage": seven_day_usage,
+            "seven_day_peak": seven_day_peak,
+            "seven_day_valley": seven_day_valley,
+            "daily_history_7d": self.daily_history_7d,
         }
 
     async def _get_history(self, start_utc, end_utc):
