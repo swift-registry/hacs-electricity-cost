@@ -32,10 +32,11 @@ from .const import (
     DEFAULT_TIER2_ADD,
     DEFAULT_TIER2_LIMIT,
     DEFAULT_TIER3_ADD,
+    DOMAIN,
 )
 
 
-class YangzhouCostConfigFlow(ConfigFlow):
+class YangzhouCostConfigFlow(ConfigFlow, domain=DOMAIN):
     """配置流。"""
 
     VERSION = 1
