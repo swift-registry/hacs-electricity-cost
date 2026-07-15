@@ -203,8 +203,68 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
 
     @callback
     def _on_interval(self, now) -> None:
-        """每5分钟重新全量计算，刷新今日/当月/当年实时值。"""
-        self.hass.async_create_task(self._compute_all())
+        """每5分钟轻量刷新当日/当月/全年实时值（不重新拉取历史）。"""
+        self.hass.async_create_task(self._refresh_realtime())
+
+    async def _refresh_realtime(self) -> None:
+        """轻量刷新：只获取当前读数，重算派生值，不拉取历史。
+
+        昨日/近7日等历史固定值只在午夜 _compute_all 中刷新。
+        """
+        live = self.hass.states.get(self.source_sensor)
+        if live is not None and live.state not in ("unknown", "unavailable"):
+            try:
+                self.current_reading = float(live.state)
+                if self._last_reading is None:
+                    self._last_reading = self.current_reading
+                    self._last_time = live.last_changed or dt_util.now()
+            except (ValueError, TypeError):
+                pass
+
+        # 更新7日数据中的今日条目（今日峰谷由 _on_state_change 增量维护）
+        if self.daily_history_7d:
+            self.daily_history_7d[0] = self._compute_today_entry()
+
+        self._publish()
+
+    def _compute_today_entry(self) -> dict:
+        """计算今日条目（用于5分钟轻量刷新）。"""
+        yb = self.year_start_reading if self.year_start_reading is not None else 0.0
+        tb = (
+            self.today_start_reading
+            if self.today_start_reading is not None
+            else self.current_reading
+        )
+        day_usage = max(0.0, self.current_reading - tb)
+
+        day_start_sur = tier_surcharge(
+            max(0.0, (self.today_start_reading or 0.0) - yb),
+            self.tier1_limit,
+            self.tier2_limit,
+            self.tier2_add,
+            self.tier3_add,
+        )
+        day_end_sur = tier_surcharge(
+            max(0.0, self.current_reading - yb),
+            self.tier1_limit,
+            self.tier2_limit,
+            self.tier2_add,
+            self.tier3_add,
+        )
+        day_cost = (
+            self.today_peak * self.price_peak
+            + self.today_valley * self.price_valley
+            + max(0.0, day_end_sur - day_start_sur)
+        )
+
+        today_date = dt_util.as_local(dt_util.now()).strftime("%Y-%m-%d")
+        return {
+            "date": today_date,
+            "usage": round(day_usage, 2),
+            "peak": round(self.today_peak, 2),
+            "valley": round(self.today_valley, 2),
+            "cost": round(day_cost, 2),
+        }
 
     async def _compute_all(self) -> None:
         """全量计算：拉取本月与昨日历史，逐段累加峰谷。"""
@@ -236,30 +296,26 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
             except (ValueError, TypeError):
                 pass
 
-        # 回退：今日读数 → 月初读数 → 今日最早状态
+        # 回退：今日读数 → 今日最早状态（不能回退到月初，否则当日电量会变成整月电量）
         if self.today_start_reading is None:
-            if self.month_start_reading is not None:
-                self.today_start_reading = self.month_start_reading
-            else:
-                for st in month_states:
-                    if st.last_changed and st.last_changed >= today_start:
-                        try:
-                            self.today_start_reading = float(st.state)
-                            break
-                        except (ValueError, TypeError):
-                            continue
-
-        # 回退：年初读数 → 月初读数 → 年初到现在最早状态
-        if self.year_start_reading is None:
-            if self.month_start_reading is not None:
-                self.year_start_reading = self.month_start_reading
-            else:
-                year_states = await self._get_history(year_start, now)
-                if year_states:
+            for st in month_states:
+                if st.last_changed and st.last_changed >= today_start:
                     try:
-                        self.year_start_reading = float(year_states[0].state)
+                        self.today_start_reading = float(st.state)
+                        break
                     except (ValueError, TypeError):
-                        pass
+                        continue
+
+        # 回退：年初读数 → 拉取年初到月初历史取最早状态 → 月初读数
+        if self.year_start_reading is None:
+            year_states = await self._get_history(year_start, month_start)
+            if year_states:
+                try:
+                    self.year_start_reading = float(year_states[0].state)
+                except (ValueError, TypeError):
+                    pass
+            if self.year_start_reading is None and self.month_start_reading is not None:
+                self.year_start_reading = self.month_start_reading
 
         # 本月峰谷累加（含今日拆分）
         self.month_peak = 0.0
