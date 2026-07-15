@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Yangzhou Water Cost",
+        "description": "Configure the Yangzhou Changjiang Water user ID and name to query water bills.",
+        "data": {
+          "name": "Name",
+          "yhh": "User ID",
+          "yhm": "Account Name"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage Yangzhou Water Cost",
+        "description": "Change the parameters below and save to apply immediately.",
+        "data": {
+          "name": "Name",
+          "yhh": "User ID",
+          "yhm": "Account Name"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  }
+}

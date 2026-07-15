@@ -1,7 +1,7 @@
 """常量定义。"""
 
 DOMAIN = "yangzhou_electricity_cost"
-DEFAULT_NAME = "扬州预估电费"
+DEFAULT_NAME = "扬州电费计算"
 
 # 配置键
 CONF_SOURCE_SENSOR = "source_sensor"

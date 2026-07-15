@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "title": "扬州电费预估",
+        "title": "扬州电费计算",
         "description": "配置源电表与峰谷电价，用于估算电费。",
         "data": {
           "name": "名称",
@@ -19,7 +19,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "管理扬州电费预估",
+        "title": "管理扬州电费计算",
         "description": "修改以下参数后保存即可立即生效。",
         "data": {
           "name": "名称",

@@ -1,0 +1,32 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "扬州长江水务",
+        "description": "配置扬州长江水务用户号与户名，用于查询水费信息。",
+        "data": {
+          "name": "名称",
+          "yhh": "用户号",
+          "yhm": "户名"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "管理扬州长江水务",
+        "description": "修改以下参数后保存即可立即生效。",
+        "data": {
+          "name": "名称",
+          "yhh": "用户号",
+          "yhm": "户名"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  }
+}

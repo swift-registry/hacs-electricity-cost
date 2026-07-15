@@ -1,10 +1,10 @@
 {
-  "domain": "yangzhou_electricity_cost",
-  "name": "扬州电费计算",
+  "domain": "yangzhou_water_cost",
+  "name": "扬州长江水务",
   "codeowners": ["@wangmengfan"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/swift-registry/homeassistant-Integration",
-  "iot_class": "calculated",
-  "version": "1.1.0"
+  "iot_class": "cloud_polling",
+  "version": "1.0.0"
 }
