@@ -107,6 +107,14 @@ class YangzhouSensor(CoordinatorEntity, SensorEntity):
         if self._key == "monthly_cost":
             attrs["峰电量(kWh)"] = round(data.get("monthly_peak", 0.0), 2)
             attrs["谷电量(kWh)"] = round(data.get("monthly_valley", 0.0), 2)
+        elif self._key == "annual_usage":
+            attrs["年初读数(kWh)"] = round(data.get("year_start_reading", 0.0), 2)
+            attrs["基线是否估算"] = data.get("annual_baseline_estimated", False)
+            if data.get("annual_baseline_estimated", False):
+                attrs["数据说明"] = (
+                    "HA 历史记录无法回溯到今年1月1日，全年电量已退化为"
+                    "“当前读数−月初读数”（仅约等于当月电量），并非真实全年值。"
+                )
         elif self._key == "daily_cost":
             attrs["峰电量(kWh)"] = round(data.get("daily_peak", 0.0), 2)
             attrs["谷电量(kWh)"] = round(data.get("daily_valley", 0.0), 2)

@@ -126,6 +126,8 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         self.yesterday_start_reading: float | None = None
         self.yesterday_end_reading: float | None = None
         self.current_reading = 0.0
+        # 全年基线是否为“估算”（HA 历史无法回溯到 1 月 1 日时为真）
+        self.annual_baseline_estimated = False
         # 近7日每日明细：[{date, usage, peak, valley, cost}, ...] 共7项
         self.daily_history_7d: list[dict] = []
 
@@ -285,9 +287,12 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         month_states = await self._get_history(month_start, now)
 
         # 基线读数（若指定时刻无数据，逐步回退到最早可用读数）
-        self.year_start_reading = await self._get_reading_at(year_start)
-        self.month_start_reading = await self._get_reading_at(month_start)
-        self.today_start_reading = await self._get_reading_at(today_start)
+        # granularity 保证取出的基线必须属于同一 年/月/日，避免跨周期污染
+        # （例如 1月1日 无记录时误用上一年底的读数，导致全年电量虚高）
+        self.annual_baseline_estimated = False
+        self.year_start_reading = await self._get_reading_at(year_start, "year")
+        self.month_start_reading = await self._get_reading_at(month_start, "month")
+        self.today_start_reading = await self._get_reading_at(today_start, "day")
 
         # 回退：月初读数 → 本月最早状态
         if self.month_start_reading is None and month_states:
@@ -316,6 +321,8 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
                     pass
             if self.year_start_reading is None and self.month_start_reading is not None:
                 self.year_start_reading = self.month_start_reading
+                # HA 历史无法回溯到 1 月 1 日，全年电量退化为“年初至今”口径外的估算
+                self.annual_baseline_estimated = True
 
         # 本月峰谷累加（含今日拆分）
         self.month_peak = 0.0
@@ -595,6 +602,8 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
             "annual_cost": annual_cost,
             "current_reading": cur,
             "annual_usage_kwh": annual_usage,
+            "year_start_reading": yb,
+            "annual_baseline_estimated": self.annual_baseline_estimated,
             "current_tier": tier,
             "seven_day_cost": seven_day_cost,
             "seven_day_usage": seven_day_usage,
@@ -625,8 +634,13 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
             return []
         return result.get(self.source_sensor, [])
 
-    async def _get_reading_at(self, utc_time) -> float | None:
-        """获取指定时间点电表的累计读数。"""
+    async def _get_reading_at(self, utc_time, granularity: str = "year") -> float | None:
+        """获取指定时间点电表的累计读数。
+
+        granularity: "year"/"month"/"day"，要求取出的读数必须属于与 utc_time
+        相同的 年/月/日，否则视为不可用。这可防止把上一年底/上月的读数误当作
+        本周期起点（否则全年/当月电量会被严重高估）。
+        """
         try:
             from homeassistant.components.recorder import history
 
@@ -641,11 +655,36 @@ class YangzhouCostCoordinator(DataUpdateCoordinator):
         states = result.get(self.source_sensor)
         if not states:
             return None
+        st = states[0]
         try:
-            value = float(states[0].state)
+            value = float(st.state)
         except (ValueError, TypeError):
             return None
-        if states[0].last_changed > utc_time:
+        if st.last_changed > utc_time:
             _LOGGER.warning("在 %s 之前没有 %s 的历史数据", utc_time, self.source_sensor)
             return None
+        if not self._reading_in_period(st.last_changed, utc_time, granularity):
+            _LOGGER.warning(
+                "%s 在 %s 之前的最近读数来自 %s（不属于同一%s），不应用作周期基线",
+                self.source_sensor,
+                utc_time,
+                st.last_changed,
+                granularity,
+            )
+            return None
         return value
+
+    @staticmethod
+    def _reading_in_period(state_time, boundary_time, granularity: str) -> bool:
+        """判断 state_time 是否与 boundary_time 处于同一 年/月/日。"""
+        if state_time is None:
+            return False
+        s = dt_util.as_local(state_time)
+        b = dt_util.as_local(boundary_time)
+        if s.year != b.year:
+            return False
+        if granularity in ("month", "day") and s.month != b.month:
+            return False
+        if granularity == "day" and s.day != b.day:
+            return False
+        return True
