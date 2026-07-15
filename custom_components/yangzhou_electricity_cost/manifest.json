@@ -2,8 +2,9 @@
   "domain": "yangzhou_electricity_cost",
   "name": "Yangzhou Electricity Cost",
   "codeowners": ["@wangmengfan"],
+  "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/wangmengfan/homeassistant-Integration",
+  "documentation": "https://github.com/wangmengfan/swift-registry",
   "iot_class": "calculated",
   "version": "1.0.0"
 }

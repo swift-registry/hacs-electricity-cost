@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "扬州电费预估",
+        "description": "配置源电表与峰谷电价，用于估算电费。",
+        "data": {
+          "name": "名称",
+          "source_sensor": "源电表传感器",
+          "peak_ratio": "峰段占比 (%)",
+          "price_peak": "峰段电价 (元/kWh)",
+          "price_valley": "谷段电价 (元/kWh)"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "管理扬州电费预估",
+        "description": "修改以下参数后保存即可立即生效。",
+        "data": {
+          "name": "名称",
+          "source_sensor": "源电表传感器",
+          "peak_ratio": "峰段占比 (%)",
+          "price_peak": "峰段电价 (元/kWh)",
+          "price_valley": "谷段电价 (元/kWh)",
+          "tier2_add": "第二档加价 (元/kWh)",
+          "tier3_add": "第三档加价 (元/kWh)",
+          "tier1_limit": "第一档年累计上限 (kWh)",
+          "tier2_limit": "第二档年累计上限 (kWh)"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  }
+}

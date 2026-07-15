@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Yangzhou Electricity Cost",
+        "description": "Configure the source meter and peak/valley prices to estimate cost.",
+        "data": {
+          "name": "Name",
+          "source_sensor": "Source meter sensor",
+          "peak_ratio": "Peak ratio (%)",
+          "price_peak": "Peak price (¥/kWh)",
+          "price_valley": "Valley price (¥/kWh)"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage Yangzhou Electricity Cost",
+        "description": "Change the parameters below and save to apply immediately.",
+        "data": {
+          "name": "Name",
+          "source_sensor": "Source meter sensor",
+          "peak_ratio": "Peak ratio (%)",
+          "price_peak": "Peak price (¥/kWh)",
+          "price_valley": "Valley price (¥/kWh)",
+          "tier2_add": "Tier 2 surcharge (¥/kWh)",
+          "tier3_add": "Tier 3 surcharge (¥/kWh)",
+          "tier1_limit": "Tier 1 yearly limit (kWh)",
+          "tier2_limit": "Tier 2 yearly limit (kWh)"
+        }
+      }
+    },
+    "error": {},
+    "abort": {}
+  }
+}
