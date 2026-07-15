@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Yangzhou Electricity Cost",
-        "description": "Configure the source meter and peak/valley prices to estimate cost.",
+        "description": "Configure the source meter and peak/valley prices to estimate electricity cost.",
         "data": {
           "name": "Name",
           "source_sensor": "Source meter sensor",

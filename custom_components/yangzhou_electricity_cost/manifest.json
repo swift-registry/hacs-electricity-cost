@@ -1,10 +1,10 @@
 {
   "domain": "yangzhou_electricity_cost",
   "name": "扬州电费计算",
-  "codeowners": ["@wangmengfan"],
+  "codeowners": [],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/swift-registry/homeassistant-Integration",
+  "description": "扬州居民阶梯+峰谷分时电费实时预估，支持当日/当月/全年/近7日多周期展示",
   "iot_class": "calculated",
   "version": "1.1.0"
 }

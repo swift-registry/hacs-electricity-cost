@@ -1,4 +1,4 @@
-"""扬州电费预估集成入口。"""
+"""扬州电费计算集成入口。"""
 
 from __future__ import annotations
 
